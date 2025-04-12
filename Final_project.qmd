@@ -1,0 +1,422 @@
+---
+title: "Cancer development in Woman Accross Europe"
+author: "Emilie Gueguen"
+format: 
+    dashboard:
+        scrolling: true
+theme: quartz
+---
+
+```{python}
+import pandas as pd
+import plotly.express as px
+import numpy as np
+from itables import show
+import country_converter as coco
+```
+
+```{python}
+# Function to Import data.
+
+def load_and_clean_data(new_cases_path, death_path, cancer_type):
+    new_cases = pd.read_csv(new_cases_path).melt(id_vars="country", var_name="year", value_name=f"new_cases_{cancer_type}")
+    deaths = pd.read_csv(death_path).melt(id_vars="country", var_name="year", value_name=f"death_{cancer_type}")
+    data = pd.merge(new_cases, deaths, on=["country", "year"])
+    for col in [f"new_cases_{cancer_type}", f"death_{cancer_type}"]:
+        has_k = data[col].str.contains("k", na=False)
+        values = data[col].str.replace("k", "", regex=False)
+        data[col] = np.where(has_k, values.astype(float) * 1000, values.astype(float))
+    data["country_code"] = coco.convert(data["country"], to="ISO3")
+    data["continent_code"] = coco.convert(data["country"], to="continent")
+    data['year']= data["year"].astype(int)
+    return data
+```
+
+```{python}
+# Import data.
+
+CRC_data_global = load_and_clean_data(
+    "data/colonandrectum_cancer_number_of_new_female_cases.csv",
+    "data/colonandrectum_cancer_number_of_female_deaths.csv",
+    "CRC"
+)
+
+BC_data_global = load_and_clean_data(
+    "data/breast_cancer_number_of_new_female_cases.csv",
+    "data/breast_cancer_number_of_female_deaths.csv",
+    "BC"
+)
+```
+
+```{python}
+# Function to filter the data in Europe only.
+
+def filter_by_continent(df, continent="Europe"):
+    return df[df["continent_code"] == continent]
+```
+
+```{python}
+# Filter the data in Europe
+
+CRC_data_Europe = filter_by_continent(CRC_data_global, continent="Europe")
+BC_data_Europe = filter_by_continent(BC_data_global, continent="Europe")
+```
+
+```{python}
+# Color selection
+colors = px.colors.qualitative.Pastel
+
+continent_names = sorted(CRC_data_global['continent_code'].unique())
+
+color_continent = dict(zip(continent_names, colors))
+```
+
+```{python}
+def global_informations(data, cancer_type, color_continent, year=2015):
+    # Nettoyage
+    global_data_cleaned = data.query('continent_code != "not found"')
+
+    # Agrégation
+    global_continent_data = (
+        global_data_cleaned.groupby(["year", "continent_code"])
+        .agg(
+            sum_death=(f"death_{cancer_type}", "sum"),
+            sum_cases=(f"new_cases_{cancer_type}", "sum")
+        )
+        .reset_index()
+    )
+
+    # Bar chart
+    bar_chart_cases = px.bar(
+        global_continent_data,
+        x="year",
+        y="sum_cases",
+        color="continent_code",
+        color_discrete_map=color_continent,
+        template="simple_white",
+        labels={"sum_cases":f"New Cases of {cancer_type}","year":"Time (year)","continent_code":"Continent"}
+    )
+
+    # Pie chart
+    data_selected_year = global_continent_data.query(f"year == {year}")
+
+    pie_chart_death = px.pie(
+        data_selected_year,
+        values="sum_death",
+        names="continent_code",
+        color="continent_code",
+        color_discrete_map=color_continent,
+        template="simple_white",
+        labels={"continent_code":"Continent","sum_death":f"Total {cancer_type} Deaths"}
+    )
+    pie_chart_death.update_traces(textinfo="percent+label", textposition="outside",
+    pull=[0.05] * len(data_selected_year),
+    marker=dict(line=dict(color="#000000", width=3)))
+
+    pie_chart_death.update_layout(showlegend=False, font=dict(family="Arial", size=14))
+
+    return bar_chart_cases, pie_chart_death
+```
+
+```{python}
+def top3_country_Europe(data, cancer_type, year):
+    top3_data_2015 = data[data["year"] == 2015]
+
+    top3_deaths = (
+        top3_data_2015.groupby("country")[f"death_{cancer_type}"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(3)
+        .reset_index()
+    )
+
+    top3_deaths_pretty = top3_deaths.rename(columns = {
+        "country":"Countries", f"death_{cancer_type}":"Total Deaths"
+    })
+    return top3_deaths_pretty
+```
+
+# CRC
+
+## {height="5%"}
+
+::: {.card title="Colorectal Cancer in Women – European Overview"}
+_This section presents the number of new cases and deaths caused by colorectal cancer (CRC) in women across Europe over time._
+:::
+
+##
+
+### {width="30%"}
+
+```{python}
+#| title: TOP 3 European Countries with high CRC Mortality
+
+CRC_top_3_death = top3_country_Europe(CRC_data_Europe,"CRC",2015)
+CRC_top_3_death
+```
+
+###
+
+```{python}
+#| title: New CRC Cases in Women Over Time in Europe
+fig_map_CRC_new_cases = px.choropleth(
+    CRC_data_Europe, 
+    locations="country_code",
+    color="new_cases_CRC", 
+    hover_name="country", 
+    animation_frame="year", 
+    color_continuous_scale="ylgnbu",
+    labels={"new_cases_CRC":"Total New Cases"})
+
+fig_map_CRC_new_cases.update_geos(scope="europe")
+```
+
+## {height="5%"}
+
+::: {.card title="Colorectal Cancer in Women – Global Overview"}
+_This section presents the number of new cases and deaths caused by colorectal cancer (CRC) in women across World over time._
+:::
+
+##
+```{python}
+(CRC_bar_chart_cases, CRC_pie_chart_death)= global_informations(CRC_data_global,"CRC",color_continent,year=2015)
+```
+
+### {width="60%"}
+```{python}
+#| title: CRC New Cases in the World over time
+
+CRC_bar_chart_cases.show()
+```
+
+### {width="40%"}
+```{python}
+#| title: CRC Mortality in the World in 2015
+
+CRC_pie_chart_death.show()
+```
+
+# Breast Cancer
+
+## {height="5%"}
+
+::: {.card title="Breast Cancer in Women – European Overview"}
+_This section presents the number of new cases and deaths caused by Breast Cancer in women across Europe over time._
+:::
+
+##
+
+### {width="30%"}
+```{python}
+#| title: TOP 3 European Countries with high Breast Cancer Mortality
+
+BC_top_3_death = top3_country_Europe(BC_data_Europe,"BC",2015)
+BC_top_3_death
+```
+
+### {width="70%"}
+```{python}
+#| title: New Breast Cancer Cases in Women Over Time
+fig_map_BC_new_cases = px.choropleth(
+    BC_data_Europe, 
+    locations="country_code",
+    color="new_cases_BC", 
+    hover_name="country", 
+    animation_frame="year", 
+    color_continuous_scale="ylgnbu")
+
+fig_map_BC_new_cases.update_geos(scope="europe")
+```
+
+## {height="5%"}
+
+::: {.card title="Breast Cancer in Women – Global Overview"}
+_This section presents the number of new cases and deaths caused by Breast Cancer in women across World over time._
+:::
+
+##
+
+```{python}
+(BC_bar_chart_cases, BC_pie_chart_death)= global_informations(BC_data_global,"BC",color_continent,year=2015)
+```
+
+### {width="60%"}
+```{python}
+#| title: Breast Cancer New Cases in the World over time
+
+BC_bar_chart_cases.show()
+```
+
+### {width="40%"}
+```{python}
+#| title: Breast Cancer Mortality in the World in 2015
+
+BC_pie_chart_death.show()
+```
+
+# Relationship between CRC and Breast Cancer
+
+```{python}
+global_data = pd.merge(
+    CRC_data_global,
+    BC_data_global,
+    on=["country", "country_code", "continent_code", "year"],
+)
+```
+
+## {height="5%"}
+
+::: {.card title="Cancer in Women – European Overview"}
+
+:::
+
+## 
+
+### {.tabset}
+
+```{python}
+europe_data = global_data.query('continent_code == "Europe"')
+europe_data['year'] = europe_data['year'].astype(int)
+```
+
+```{python}
+europe_data_2015 = europe_data.query('year == 2015')
+```
+
+```{python}
+#| title: Figure
+figure_europe_cancers = px.bar(
+    europe_data_2015,
+    x=["new_cases_CRC", "new_cases_BC"],
+    y="country",
+    template="simple_white",
+    color_discrete_sequence=px.colors.qualitative.Pastel,
+    labels={"country": "European Countries", "value": "Number of Women"}, barmode = "group"
+)
+
+figure_europe_cancers.update_yaxes(categoryorder="max ascending")
+```
+
+```{python}
+#| title: Table
+europe_data_2015
+```
+
+### {width="30%"}
+
+```{python}
+europe_cases_by_year = ( europe_data.groupby("year")
+    .agg(
+        sum_BC = ("new_cases_BC","sum"),
+        sum_CRC = ("new_cases_CRC","sum")
+    )
+    .reset_index()    
+)
+
+europe_cases_by_year["pct_change_BC"] = europe_cases_by_year["sum_BC"].pct_change() * 100
+europe_cases_by_year["pct_change_CRC"] = europe_cases_by_year["sum_CRC"].pct_change() * 100
+
+avg_pct_increase_BC = europe_cases_by_year["pct_change_BC"].mean(skipna=True)
+avg_pct_increase_CRC = europe_cases_by_year["pct_change_CRC"].mean(skipna=True)
+```
+
+```{python}
+#| content: valuebox
+#| title: "Average Annual Increase of Colon Cancer"
+#| icon: graph-up-arrow
+#| color: success
+dict( value = f"{avg_pct_increase_CRC:.2f}%", caption = "Average Annual Increase")
+```
+
+
+```{python}
+#| content: valuebox
+#| title: "Average Annual Increase of Breast Cancer"
+#| icon: bar-chart-line
+#| color: warning
+dict(
+  value = f"{avg_pct_increase_BC:.2f}%",
+  subtitle = "Average Annual Increase"
+)
+```
+
+## {height="5%"}
+
+::: {.card title="Cancer in Women – Global Overview"}
+
+:::
+## 
+```{python}
+#| title: Median Global Cancer Indicators Over Time
+
+median_global_data = (
+    global_data.groupby("year")
+    .agg(
+        median_CRC_death=("death_CRC", "median"),
+        median_BC_death=("death_BC", "median"),
+        median_CRC_new=("new_cases_CRC", "median"),
+        median_BC_new=("new_cases_BC", "median"),
+    )
+    .reset_index()
+)
+
+median_long = median_global_data.melt(
+    id_vars="year",
+    var_name="indicator",
+    value_name="median_value"
+)
+
+indicator_labels = {
+    "median_CRC_death": "CRC Deaths",
+    "median_BC_death": "BC Deaths",
+    "median_CRC_new": "New CRC Cases",
+    "median_BC_new": "New BC Cases"
+}
+median_long["indicator"] = median_long["indicator"].map(indicator_labels)
+
+
+fig_global_median = px.line(
+    median_long,
+    x="year",
+    y="median_value",
+    color="indicator",
+    markers=True,
+    template="simple_white",
+    labels={
+        "year": "Year",
+        "median_value": "Median (per country)",
+        "indicator": "Cancer Metric"
+    },
+    title="Median Global Cancer Indicators Over Time"
+)
+
+
+fig_global_median.update_layout(title_x=0.5)
+```
+
+
+```{python}
+global_data_2015 = global_data.query("year == 2015 & country_code != 'not found'")
+global_data_2015['sum_new_cases_cancer'] = global_data_2015['new_cases_CRC'] +  global_data_2015['new_cases_BC']
+
+global_data_2015 = global_data_2015.sort_values("sum_new_cases_cancer", ascending=False)
+
+global_data_2015_top_10 = global_data_2015.head(10)
+```
+
+### {.tabset}
+
+```{python}
+#| title: Figure
+bar_chart_cancer_world_2015 = px.bar(global_data_2015_top_10, x="country", y=["new_cases_CRC", "new_cases_BC"], template="simple_white",
+    color_discrete_sequence=px.colors.qualitative.Pastel,
+    labels={"country": "Countries", "value": "Number of New Cases of Cancer"}, barmode = "group")
+
+bar_chart_cancer_world_2015.show()
+```
+
+
+```{python}
+#| title: Table
+global_data_2015_top_10
+```
